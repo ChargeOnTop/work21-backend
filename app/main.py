@@ -58,7 +58,8 @@ app.add_middleware(
         "https://ift-1.brojs.ru",
         "https://ift-2.brojs.ru",
         "https://ift-3.brojs.ru",
-        # Добавьте ваш постоянный домен бэкенда здесь
+        "https://admin.work-21.com",
+        "https://work-21.com",
     ],
     allow_credentials=True,  # Включаем для cookies
     allow_methods=["*"],
