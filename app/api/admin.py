@@ -87,6 +87,32 @@ class PasswordResetRequest(BaseModel):
     new_password: str = Field(..., min_length=8)
 
 
+class UserAdminCreate(BaseModel):
+    """Схема создания пользователя админом"""
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+    role: UserRole
+    bio: Optional[str] = None
+    skills: Optional[str] = None
+    is_active: bool = True
+    is_verified: bool = False
+
+
+class ProjectAdminCreate(BaseModel):
+    """Схема создания проекта админом"""
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1)
+    requirements: Optional[str] = None
+    budget: float = Field(..., ge=0)
+    deadline: Optional[datetime] = None
+    tech_stack: Optional[str] = None
+    status: ProjectStatus = ProjectStatus.DRAFT
+    customer_id: int
+    assignee_id: Optional[int] = None
+
+
 class ProjectAdminResponse(BaseModel):
     """Ответ с данными проекта для админки"""
     id: int
@@ -313,6 +339,46 @@ async def list_users(
     }
 
 
+@router.post("/users")
+async def create_user(
+    data: UserAdminCreate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user)
+):
+    """Создать нового пользователя"""
+    
+    # Проверяем что email не занят
+    result = await db.execute(select(User).where(User.email == data.email))
+    existing_user = result.scalar_one_or_none()
+    
+    if existing_user:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Пользователь с email {data.email} уже существует"
+        )
+    
+    # Создаём пользователя
+    user = User(
+        email=data.email,
+        hashed_password=get_password_hash(data.password),
+        first_name=data.first_name,
+        last_name=data.last_name,
+        role=data.role,
+        bio=data.bio,
+        skills=data.skills,
+        is_active=data.is_active,
+        is_verified=data.is_verified,
+        rating_score=0.0,
+        completed_projects=0,
+    )
+    
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    
+    return {"message": "Пользователь создан", "id": user.id}
+
+
 @router.get("/users/{user_id}", response_model=UserAdminResponse)
 async def get_user(
     user_id: int,
@@ -531,6 +597,48 @@ async def list_projects(
         "per_page": per_page,
         "pages": (total + per_page - 1) // per_page if per_page > 0 else 0,
     }
+
+
+@router.post("/projects")
+async def create_project(
+    data: ProjectAdminCreate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user)
+):
+    """Создать новый проект"""
+    
+    # Проверяем что заказчик существует
+    result = await db.execute(select(User).where(User.id == data.customer_id))
+    customer = result.scalar_one_or_none()
+    
+    if not customer:
+        raise HTTPException(status_code=400, detail="Заказчик не найден")
+    
+    # Проверяем исполнителя если указан
+    if data.assignee_id:
+        result = await db.execute(select(User).where(User.id == data.assignee_id))
+        assignee = result.scalar_one_or_none()
+        if not assignee:
+            raise HTTPException(status_code=400, detail="Исполнитель не найден")
+    
+    # Создаём проект
+    project = Project(
+        title=data.title,
+        description=data.description,
+        requirements=data.requirements,
+        budget=data.budget,
+        deadline=data.deadline,
+        tech_stack=data.tech_stack,
+        status=data.status,
+        customer_id=data.customer_id,
+        assignee_id=data.assignee_id,
+    )
+    
+    db.add(project)
+    await db.commit()
+    await db.refresh(project)
+    
+    return {"message": "Проект создан", "id": project.id}
 
 
 @router.get("/projects/{project_id}", response_model=ProjectAdminResponse)
